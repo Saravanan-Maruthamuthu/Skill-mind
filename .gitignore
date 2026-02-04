@@ -1,0 +1,18 @@
+# Add your OpenAI API key here
+OPENAI_API_KEY=
+
+# Leave these empty - they will be created automatically
+uploads/
+database/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+venv/
+.env
