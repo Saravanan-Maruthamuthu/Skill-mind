@@ -192,3 +192,125 @@ class SkillAnalyzer:
         )
         
         return sorted_skills[:max_skills]
+
+    def get_best_programming_languages(self, skills_with_proficiency: List[Dict], count: int = 2) -> List[Dict]:
+        """
+        Get the top programming languages from the identified skills
+        
+        Args:
+            skills_with_proficiency: List of skills with proficiency levels
+            count: Number of languages to return
+            
+        Returns:
+            List of selected programming language skills
+        """
+        programming_langs = self.skill_categories.get('Programming Languages', [])
+        
+        # Filter for programming languages only
+        lang_skills = [
+            s for s in skills_with_proficiency 
+            if any(lang.lower() == s['skill'].lower() or 
+                   (lang.lower() in s['skill'].lower() and len(s['skill']) < len(lang) + 5) # Fuzzy match safely
+                   for lang in programming_langs)
+        ]
+        
+        # Sort by proficiency and mentions
+        sorted_langs = sorted(
+            lang_skills,
+            key=lambda x: (
+                {'advanced': 3, 'intermediate': 2, 'beginner': 1}[x['proficiency']],
+                x['mentions']
+            ),
+            reverse=True
+        )
+        
+        return sorted_langs[:count]
+
+    def calculate_total_experience(self, experience_list: List[Dict]) -> int:
+        """
+        Calculate total years of experience based on experience entries
+        
+        Args:
+            experience_list: List of experience dictionaries
+            
+        Returns:
+            Total years of experience (integer)
+        """
+        total_months = 0
+        from datetime import datetime
+        import re
+
+        for exp in experience_list:
+            duration_str = exp.get('duration', '')
+            if not duration_str:
+                continue
+                
+            # Parse dates (simplified)
+            # Expecting format "YYYY - YYYY" or "YYYY - Present"
+            # Or "Mon YYYY - Mon YYYY"
+            
+            try:
+                # Find all year-like patterns or 'present'
+                dates = re.findall(r'([A-Za-z]+ \d{4}|\d{4}|present|current)', duration_str, re.IGNORECASE)
+                
+                if len(dates) >= 2:
+                    start_str = dates[0]
+                    end_str = dates[1]
+                    
+                    start_date = None
+                    end_date = None
+                    
+                    # Parse start
+                    if re.match(r'^\d{4}$', start_str):
+                        start_date = datetime.strptime(start_str, "%Y")
+                    else:
+                        try:
+                            start_date = datetime.strptime(start_str, "%b %Y")
+                        except:
+                            # Fallback to year extraction
+                            year_match = re.search(r'\d{4}', start_str)
+                            if year_match:
+                                start_date = datetime.strptime(year_match.group(), "%Y")
+                            
+                    if not start_date:
+                        continue
+
+                    # Parse end
+                    if end_str.lower() in ['present', 'current']:
+                        end_date = datetime.now()
+                    elif re.match(r'^\d{4}$', end_str):
+                        end_date = datetime.strptime(end_str, "%Y")
+                    else:
+                        try:
+                            # Try with month first
+                            end_date = datetime.strptime(end_str, "%b %Y")
+                        except:
+                             # Fallback to year
+                            year_match = re.search(r'\d{4}', end_str)
+                            if year_match:
+                                end_date = datetime.strptime(year_match.group(), "%Y")
+                    
+                    if not end_date:
+                        continue
+                    
+                    # Calculate months
+                    months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
+                    # Add 1 month to include the end month partially
+                    months += 1
+                    
+                    if months > 0:
+                        total_months += months
+            except Exception as e:
+                print(f"Error parsing duration '{duration_str}': {e}")
+                continue
+        
+        # Convert to years (rounded)
+        if total_months == 0:
+            return 0
+            
+        years = round(total_months / 12)
+        # Ensure at least 1 year if there is some experience but less than 6 months rounded
+        if years == 0 and total_months > 0:
+            years = 1
+            
+        return years

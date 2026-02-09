@@ -159,7 +159,12 @@ SELECT "Hello World";`
 
         // Smart Default Selection
         const defaultLangKey = this.getLanguageFromSkill(challenge.skill);
-        const defaultBoilerplate = this.boilerplates[defaultLangKey] || this.boilerplates['java'];
+        let defaultBoilerplate = this.boilerplates[defaultLangKey] || this.boilerplates['java'];
+
+        // Use starter code from backend if available
+        if (challenge.starter_code) {
+            defaultBoilerplate = challenge.starter_code;
+        }
 
         // Generate Options HTML
         const optionsHtml = this.languageList.map(lang =>
@@ -265,7 +270,16 @@ SELECT "Hello World";`
                 return;
             }
         }
-        editor.value = this.boilerplates[lang] || '';
+
+        // Check if we can use starter code for this language
+        const currentChallenge = app.quiz.coding_challenges[this.currentChallengeIndex];
+        const challengeLangKey = this.getLanguageFromSkill(currentChallenge.skill);
+
+        if (lang === challengeLangKey && currentChallenge.starter_code) {
+            editor.value = currentChallenge.starter_code;
+        } else {
+            editor.value = this.boilerplates[lang] || '';
+        }
     },
 
     // Run code (client-side preview)

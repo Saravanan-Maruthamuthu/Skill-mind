@@ -8,6 +8,25 @@ from config import Config
 class QuestionGenerator:
     """Generate dynamic MCQ and coding questions using AI"""
     
+    # Real-world scenario templates for unique challenge generation
+    SCENARIO_TEMPLATES = [
+        "smart_city_infrastructure", "healthcare_monitoring", "e_commerce_optimization",
+        "logistics_routing", "social_media_analytics", "financial_fraud_detection",
+        "gaming_matchmaking", "iot_sensor_networks", "food_delivery_optimization",
+        "video_streaming_cdn", "autonomous_vehicle_coordination", "energy_grid_management",
+        "warehouse_robotics", "agricultural_automation", "cybersecurity_threat_detection",
+        "real_estate_pricing", "event_ticketing", "airline_seat_allocation",
+        "music_recommendation", "sports_analytics", "supply_chain_optimization",
+        "smart_parking_systems", "traffic_management", "inventory_management"
+    ]
+    
+    # Common problems to avoid (anti-patterns)
+    COMMON_PROBLEMS_TO_AVOID = [
+        "Two Sum", "Palindrome", "Reverse String", "Fizz Buzz", "Fibonacci",
+        "Valid Anagram", "Merge Intervals", "Longest Substring", "Binary Search",
+        "Climbing Stairs", "Maximum Subarray", "House Robber", "Coin Change"
+    ]
+    
     def __init__(self, api_key: str = None):
         api_key = api_key or Config.OPENAI_API_KEY
         
@@ -110,97 +129,330 @@ Return the response as a JSON array with this structure:
                 q['skill'] = skill
                 q['type'] = 'mcq'
             
-            return questions
+            # Validate options
+            valid_questions = []
+            for q in questions:
+                # Normalize keys to uppercase
+                if 'options' in q and isinstance(q['options'], dict):
+                    # Ensure A, B, C, D exist
+                    normalized_options = {}
+                    for k, v in q['options'].items():
+                        # specific handle for 'a', 'b' etc
+                        key = k.upper().strip()
+                        if key in ['A', 'B', 'C', 'D']:
+                            normalized_options[key] = str(v).strip()
+                    
+                    # Fill missing keys if needed or skip
+                    if len(normalized_options) >= 2: # At least 2 options needed
+                        q['options'] = normalized_options
+                        
+                        # Ensure correct answer is uppercase
+                        if 'correct_answer' in q:
+                            q['correct_answer'] = q['correct_answer'].upper().strip()
+                        
+                        valid_questions.append(q)
+            
+            return valid_questions[:num_questions]
             
         except Exception as e:
             error_msg = str(e)
-            print(f"Error generating MCQ questions: {error_msg}")
             
-            # Check for specific API errors
-            if "402" in error_msg:
-                print("OpenAI API Quota Exceeded. Using fallback questions.")
-                return self._get_fallback_mcq(skill, proficiency, num_questions)
-            if "401" in error_msg:
-                print("Invalid OpenAI API Key. Using fallback questions.")
+            # Check for specific API errors to handle gracefully without full traceback
+            if any(code in error_msg for code in ["402", "401", "429", "500", "503"]):
+                print(f"OpenAI API Error ({error_msg}). Using fallback questions.")
                 return self._get_fallback_mcq(skill, proficiency, num_questions)
                 
+            print(f"Error generating MCQ questions: {error_msg}")
             traceback.print_exc()
             return self._get_fallback_mcq(skill, proficiency, num_questions)
     
-    def generate_coding_challenge(self, skill: str, proficiency: str) -> Dict:
+
+    
+    def generate_coding_challenges_for_candidate(self, skills: List[str], years_of_experience: int = 1) -> List[Dict]:
         """
-        Generate a HackerRank-style coding challenge for a specific skill
+        Generate 3 coding challenges based on candidate's skill profile using specific prompt.
+        
+        Args:
+            skills: List of candidate's technical skills
+            years_of_experience: Candidate's years of experience
+            
+        Returns:
+            List of 3 coding challenges
+        """
+        skills_str = ", ".join(skills)
+        
+        # User defined prompt
+        prompt = f"""You are a coding interview question generator.
+
+Generate 3 coding challenges for a candidate who has skills in:
+{skills_str}
+
+Candidate Experience: {years_of_experience} years.
+
+Each question should include:
+- Problem statement
+- Input format
+- Output format
+- Difficulty level (Easy/Medium/Hard)
+- Sample input and output
+
+RETURN JSON ONLY.
+The response must be a JSON object with a key "challenges" containing an array of 3 challenge objects.
+Each challenge object MUST have these exact keys:
+- title: string
+- description: string (Problem statement)
+- input_format: string
+- output_format: string
+- difficulty: string (Easy/Medium/Hard)
+- sample_input: string
+- sample_output: string
+- skill: string (The specific skill this challenge tests)
+- starter_code: string (valid starter code for the language)
+- solution_code: string (valid solution code)
+- test_cases: array of objects with "input" and "expected_output" keys
+"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert technical interviewer. You MUST return valid JSON only. No markdown formatting."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            content = self._clean_json_string(content)
+            
+            data = json.loads(content)
+            challenges = data.get('challenges', [])
+            
+            # Post-processing to ensure all fields are present for the frontend
+            valid_challenges = []
+            for i, ch in enumerate(challenges):
+                # Ensure essential fields
+                if 'title' not in ch or 'description' not in ch:
+                    continue
+                    
+                # Add metadata if missing
+                if 'test_cases' not in ch:
+                    ch['test_cases'] = [
+                        {'input': ch.get('sample_input', ''), 'expected_output': ch.get('sample_output', ''), 'explanation': 'Sample case'}
+                    ]
+                
+                # Ensure type is set
+                ch['type'] = 'coding'
+                
+                # Normalize difficulty
+                diff = ch.get('difficulty', 'Medium').lower()
+                if 'easy' in diff: ch['difficulty'] = 'beginner'
+                elif 'hard' in diff: ch['difficulty'] = 'advanced'
+                else: ch['difficulty'] = 'intermediate'
+                
+                valid_challenges.append(ch)
+                
+            return valid_challenges[:3]
+            
+        except Exception as e:
+            print(f"Error generating batch challenges: {e}")
+            # Fallback to mock data for demonstration if API fails (e.g. no key)
+            print("Using fallback mock challenges for demonstration.")
+            return [
+                {
+                    "title": "Config Parsing Module",
+                    "description": "Implement a parser for a custom configuration format used in a distributed system. The format consists of key-value pairs separated by specific delimiters.",
+                    "input_format": "A string containing the configuration data.",
+                    "output_format": "A JSON string representing the parsed configuration.",
+                    "difficulty": "intermediate",
+                    "skill": "Python",
+                    "starter_code": "def parse_config(config_str):\n    # TODO: Implement parser\n    pass",
+                    "test_cases": [
+                        {"input": "key1=value1;key2=value2", "expected_output": "{\"key1\": \"value1\", \"key2\": \"value2\"}"}
+                    ]
+                },
+                {
+                    "title": "Log Analysis Tool",
+                    "description": "Create a tool to analyze server logs and identify IP addresses with excessive request rates within a sliding window.",
+                    "input_format": "A list of log entries with timestamp and IP.",
+                    "output_format": "A list of flagged IP addresses.",
+                    "difficulty": "advanced",
+                    "skill": "Python",
+                    "starter_code": "def analyze_logs(logs, window_size, limit):\n    # TODO: Implement analysis logic\n    pass",
+                    "test_cases": [
+                        {"input": "[{\"time\": 1, \"ip\": \"1.1.1.1\"}, ...]", "expected_output": "[\"1.1.1.1\"]"}
+                    ]
+                },
+                {
+                    "title": "Database Query Optimizer",
+                    "description": "Simulate a query optimizer that reorders operations in a query plan to minimize estimated cost based on table statistics.",
+                    "input_format": "A query plan structure and table statistics.",
+                    "output_format": "Optimized query plan.",
+                    "difficulty": "intermediate",
+                    "skill": "Python",
+                    "starter_code": "def optimize_query(plan, stats):\n    # TODO: Implement optimization\n    pass",
+                    "test_cases": [
+                        {"input": "{...}", "expected_output": "{...}"}
+                    ]
+                }
+            ]
+
+    def generate_coding_challenge(self, skill: str, proficiency: str, avoid_topics: List[str] = None, years_of_experience: int = 1) -> Dict:
+        """
+        Generate a dynamic, skill-adapted coding challenge using Instruction-Tuned Transformer models
         
         Args:
             skill: The programming language or technology
             proficiency: Skill level (beginner/intermediate/advanced)
+            avoid_topics: List of topics/titles to avoid (to ensure variety)
+            years_of_experience: Candidate's years of experience (for difficulty calibration)
             
         Returns:
             Coding challenge with comprehensive test cases and details
         """
-        prompt = f"""Create a HackerRank-style coding challenge to test {proficiency} level skills in {skill}.
+        avoid_topics = avoid_topics or []
+        
+        # Select random scenario template for uniqueness
+        selected_scenario = random.choice(self.SCENARIO_TEMPLATES)
+        
+        # Build avoid instruction with both user-provided and common problems
+        all_avoided = avoid_topics + self.COMMON_PROBLEMS_TO_AVOID
+        avoid_instruction = f"""CRITICAL UNIQUENESS REQUIREMENTS:
+- Do NOT generate problems similar to: {', '.join(all_avoided[:15])}
+- Do NOT create variations of common LeetCode/HackerRank problems
+- MUST base the problem on the scenario: "{selected_scenario.replace('_', ' ')}"
+- Problem MUST have real-world context and practical application
+- Use creative combinations of data structures and algorithms"""
 
-The problem should be well-structured and professional, similar to problems on HackerRank or LeetCode.
+        # Map proficiency to experience-based difficulty
+        difficulty_map = {
+            'beginner': 'entry-level developer (0-2 years)',
+            'intermediate': 'mid-level developer with production experience (2-5 years)',
+            'advanced': 'senior developer capable of complex system design (5+ years)'
+        }
+        
+        experience_context = difficulty_map.get(proficiency, 'developer')
 
-Provide:
-1. **Problem Title**: A clear, descriptive title
-2. **Problem Statement**: Detailed description with context and requirements
-3. **Input Format**: Precise specification of input format
-4. **Output Format**: Precise specification of expected output
-5. **Constraints**: Clear constraints on input size and values
-6. **Sample Test Cases**: At least 3 example test cases with explanations
-7. **Hidden Test Cases**: At least 2 additional test cases for validation
-8. **Hints/Approach**: Brief hints on how to approach the problem
-9. **Time Complexity**: Expected time complexity
-10. **Space Complexity**: Expected space complexity
+        prompt = f"""You are an expert coding challenge architect creating UNIQUE technical assessments.
 
-Difficulty Level: {proficiency}
+CONTEXT:
+- Programming Language/Skill: {skill}
+- Difficulty Level: {proficiency}
+- Candidate Experience: {years_of_experience} year(s) - {experience_context}
+- Scenario Theme: {selected_scenario.replace('_', ' ').title()}
 
-Return as JSON with this exact structure:
+{avoid_instruction}
+
+YOUR TASK:
+Create a COMPLETELY ORIGINAL coding problem that:
+
+1. **Real-World Scenario**: Base the problem on "{selected_scenario.replace('_', ' ')}" - make it feel like solving an actual industry challenge
+2. **Practical Application**: The solution should be something an {experience_context} would encounter in production systems
+3. **Unique Constraints**: Add specific business rules or edge cases that make this problem distinct
+4. **Appropriate Complexity**: Match difficulty to {proficiency} level and {years_of_experience} years of experience
+5. **Testable & Clear**: Include comprehensive test cases that validate correctness
+
+REQUIRED JSON STRUCTURE:
 {{
-  "title": "Problem Title",
-  "description": "Detailed problem statement with context. Explain what needs to be solved and why.",
-  "input_format": "Detailed input format specification",
-  "output_format": "Detailed output format specification",
+  "title": "Descriptive title reflecting the real-world scenario (NOT generic algorithm names)",
+  "description": "Detailed problem statement with:
+    - Real-world context explaining WHY this matters
+    - Business scenario setup (who, what, where)
+    - Clear requirements and objectives
+    - Practical constraints from the domain
+    Make it engaging and scenario-driven, minimum 150 words.",
+  
+  "input_format": "Precise specification of input structure. Example: 'First line contains N (number of items). Next N lines contain...'",
+  
+  "output_format": "Exact expected output specification with format details and examples",
+  
   "constraints": [
-    "Constraint 1 with specific bounds",
-    "Constraint 2 with specific bounds",
-    "Time limit: X seconds"
+    "Numerical/size constraints (e.g., 1 <= n <= 10^5)",
+    "Data type constraints (e.g., valid IPv4 addresses)",
+    "Business rule constraints (e.g., prices must be positive)",
+    "Time/space limits (e.g., Time limit: 2 seconds)"
   ],
+  
   "sample_test_cases": [
     {{
-      "input": "sample input",
-      "expected_output": "expected output",
-      "explanation": "Why this is the correct output"
+      "input": "Concrete example input matching input_format",
+      "expected_output": "Exact expected output for this input",
+      "explanation": "Walk through WHY this is the correct output, explaining the logic"
+    }},
+    {{
+      "input": "Second example with different scenario",
+      "expected_output": "Expected output",
+      "explanation": "Explanation of reasoning"
     }}
   ],
+  
   "hidden_test_cases": [
     {{
-      "input": "test input",
-      "expected_output": "expected output",
-      "explanation": "Test case purpose"
+      "input": "Edge case or complex scenario not shown to candidate",
+      "expected_output": "Expected output",
+      "explanation": "What this test validates (e.g., handles overflow, empty input, etc.)"
+    }},
+    {{
+      "input": "Another edge case",
+      "expected_output": "Expected output",
+      "explanation": "Validation purpose"
     }}
   ],
+  
   "hints": [
-    "Hint 1 about approach",
-    "Hint 2 about optimization"
+    "High-level approach hint (no code)",
+    "Data structure suggestion",
+    "Algorithm optimization hint"
   ],
-  "time_complexity": "O(n) or O(n log n) etc",
-  "space_complexity": "O(1) or O(n) etc",
+  
+  "time_complexity": "Expected optimal time complexity in Big-O notation",
+  "space_complexity": "Expected space complexity in Big-O notation",
   "difficulty": "{proficiency}",
-  "tags": ["array", "string", "dynamic programming", etc],
-  "sample_solution": "Complete working solution code",
-  "time_limit": 30
-}}"""
+  "tags": ["relevant", "algorithm", "data_structure", "tags"],
+  
+  "sample_solution": "Complete, working, EXECUTABLE solution in {skill} with:
+    - Proper input reading (stdin)
+    - Full implementation of the algorithm
+    - Output to stdout
+    - Comments explaining key logic
+    ENSURE THIS IS VALID {skill} CODE THAT WILL RUN.",
+  
+  "starter_code": "Starter template in {skill} with:
+    - Input reading scaffolding
+    - Function signature or main structure
+    - TODO comments where logic goes
+    - Output structure",
+  
+  "time_limit": 30,
+  
+  "solution_approach": "Brief text explanation (NO code) of:
+    - Recommended algorithm or approach
+    - Key insights needed to solve it
+    - Optimization strategies
+    - Common pitfalls to avoid"
+}}
+
+CRITICAL RULES:
+✅ Problem MUST be unique and scenario-driven from "{selected_scenario.replace('_', ' ')}"
+✅ Title should describe the scenario, NOT the algorithm (e.g., "Traffic Signal Optimizer", not "Greedy Algorithm")
+✅ Include at least 2 sample test cases and 2 hidden test cases
+✅ 'sample_solution' must be VALID, EXECUTABLE {skill} code
+✅ 'starter_code' should help candidate get started
+✅ Return ONLY valid JSON, no markdown formatting
+
+Generate a problem that will make the candidate think: "This is a real system I might build!"
+"""
         
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are an expert competitive programming instructor creating high-quality coding challenges similar to HackerRank, LeetCode, and Codeforces. Create problems that are clear, well-structured, and test real programming skills."},
+                    {"role": "system", "content": "You are an expert competitive programming instructor and software architect. You create high-quality, unique coding challenges that mirror real-world engineering problems. Your challenges are known for being creative, practical, and different from typical platforms."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.7,
+                temperature=0.85,  # Increased for more creativity
+                top_p=0.92,  # Nucleus sampling for diversity
                 response_format={"type": "json_object"}
             )
             
@@ -221,21 +473,20 @@ Return as JSON with this exact structure:
             # Add metadata
             challenge['skill'] = skill
             challenge['type'] = 'coding'
+            challenge['scenario'] = selected_scenario
             
             return challenge
             
         except Exception as e:
             error_msg = str(e)
-            print(f"Error generating coding challenge: {error_msg}")
             
-            if "402" in error_msg:
-                print("OpenAI API Quota Exceeded. Using fallback coding challenge.")
-                return self._get_fallback_coding(skill, proficiency)
-            if "401" in error_msg:
-                print("Invalid OpenAI API Key. Using fallback coding challenge.")
-                return self._get_fallback_coding(skill, proficiency)
-                
-            return self._get_fallback_coding(skill, proficiency)
+            # Check for specific API errors
+            if any(code in error_msg for code in ["402", "401", "429", "500", "503"]):
+                 print(f"OpenAI API Error ({error_msg}). Using fallback coding challenge.")
+                 return self._get_fallback_coding(skill, proficiency, avoid_topics)
+            
+            print(f"Error generating coding challenge: {error_msg}")
+            return self._get_fallback_coding(skill, proficiency, avoid_topics)
     
     def generate_quiz_for_skills(self, skills_with_proficiency: List[Dict]) -> Dict:
         """
@@ -261,12 +512,17 @@ Return as JSON with this exact structure:
             # Generate coding challenges for programming languages only (12 essential languages)
             programming_langs = ['Python', 'Java', 'JavaScript', 'C++', 'C', 'SQL', 'Kotlin', 'Go', 'Rust', 'Swift', 'R']
             if skill in programming_langs:
-                # Generate multiple challenges as per config (default 3)
-                num_challenges = getattr(Config, 'CODING_CHALLENGES_PER_SKILL', 1)
+                # Generate 3 distinct challenges
+                num_challenges = getattr(Config, 'CODING_CHALLENGES_PER_SKILL', 3)
+                generated_topics = []
+                
                 for _ in range(num_challenges):
-                    coding = self.generate_coding_challenge(skill, proficiency)
+                    # Pass previously generated topics to avoid duplication
+                    coding = self.generate_coding_challenge(skill, proficiency, generated_topics)
                     if coding:
                         all_coding.append(coding)
+                        generated_topics.append(coding.get('title', 'Unknown'))
+                        print(f"Generated coding challenge: {coding.get('title')}")
         
         # Shuffle questions
         random.shuffle(all_mcqs)
@@ -376,436 +632,319 @@ Return as JSON with this exact structure:
             q['difficulty'] = proficiency
             
         # Ensure we return the requested number
-        while len(questions) < num:
-            questions.append(questions[0].copy()) # Duplicate if not enough
+        # Ensure we return the requested number
+        initial_count = len(questions)
+        if initial_count > 0:
+            while len(questions) < num:
+                # Cycle through existing questions instead of just repeating the first one
+                # Add a marker to differentiate if strict uniqueness isn't possible
+                base_q = questions[len(questions) % initial_count]
+                new_q = base_q.copy()
+                # Optionally add a suffix to title if it helps, but for MCQs, exact duplicate is better than broken
+                questions.append(new_q)
             
         return questions[:num]
     
-    def _get_fallback_coding(self, skill: str, proficiency: str) -> Dict:
-        """Fallback coding challenges if API fails - HackerRank/LeetCode style"""
+    def _get_fallback_coding(self, skill: str, proficiency: str, avoid_topics: List[str] = None) -> Dict:
+        """
+        Dynamic fallback coding challenges using template-based generation
+        Works offline without API - generates unique challenges from combinations
+        """
+        avoid_topics = avoid_topics or []
         
-        # Skill-specific coding challenges with comprehensive details
-        coding_challenges = {
-            'Python': [
-                {
-                    'title': 'Two Sum',
-                    'description': '''Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.
+        # Select random scenario for uniqueness
+        selected_scenario = random.choice(self.SCENARIO_TEMPLATES)
+        
+        # Challenge templates with variable components
+        challenge_templates = [
+            {
+                'title_pattern': '{context} {operation} Optimizer',
+                'description_pattern': '''You're building a {scenario_desc} system. {business_context}
 
-You may assume that each input would have exactly one solution, and you may not use the same element twice.
+Your task is to implement an efficient algorithm that {objective}.
 
-You can return the answer in any order.
+The system needs to handle {data_type} and optimize for {optimization_goal}.
 
-Example:
-Input: nums = [2,7,11,15], target = 9
-Output: [0,1]
-Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].''',
-                    'input_format': 'First line contains space-separated integers (the array)\nSecond line contains the target integer',
-                    'output_format': 'Two space-separated integers representing the indices',
-                    'constraints': [
-                        '2 <= nums.length <= 10^4',
-                        '-10^9 <= nums[i] <= 10^9',
-                        '-10^9 <= target <= 10^9',
-                        'Only one valid answer exists',
-                        'Time limit: 2 seconds'
-                    ],
-                    'test_cases': [
-                        {
-                            'input': '2 7 11 15\n9',
-                            'expected_output': '0 1',
-                            'explanation': 'Because nums[0] + nums[1] == 9, we return [0, 1]'
-                        },
-                        {
-                            'input': '3 2 4\n6',
-                            'expected_output': '1 2',
-                            'explanation': 'Because nums[1] + nums[2] == 6, we return [1, 2]'
-                        },
-                        {
-                            'input': '3 3\n6',
-                            'expected_output': '0 1',
-                            'explanation': 'Because nums[0] + nums[1] == 6, we return [0, 1]'
-                        }
-                    ],
-                    'hints': [
-                        'Use a hash map to store numbers you\'ve seen',
-                        'For each number, check if its complement (target - num) exists in the hash map'
-                    ],
-                    'time_complexity': 'O(n)',
-                    'space_complexity': 'O(n)',
-                    'tags': ['array', 'hash-table'],
-                    'sample_solution': '''nums = list(map(int, input().split()))
-target = int(input())
-seen = {}
-for i, num in enumerate(nums):
-    complement = target - num
-    if complement in seen:
-        print(seen[complement], i)
-        break
-    seen[num] = i'''
-                },
-                {
-                    'title': 'Palindrome Check',
-                    'description': '''Given a string s, determine if it is a palindrome, considering only alphanumeric characters and ignoring cases.
+Example Scenario:
+{example_scenario}''',
+                'contexts': ['Resource', 'Task', 'Data', 'Process', 'Queue', 'Schedule'],
+                'operations': ['Allocation', 'Distribution', 'Management', 'Scheduling', 'Routing'],
+                'data_types': ['collections of items',  'time-series data', 'hierarchical structures', 'network connections'],
+                'optimization_goals': ['minimum cost', 'maximum efficiency', 'balanced load', 'fastest processing']
+            },
+            {
+                'title_pattern': '{system} {analyzer} System',
+                'description_pattern': '''Design a {system} that {action} based on {criteria}.
 
-A palindrome is a word, phrase, number, or other sequence of characters that reads the same forward and backward (ignoring spaces, punctuation, and capitalization).
+Business Requirements:
+- {requirement1}
+- {requirement2}
+- {requirement3}
 
-Example:
-Input: "A man, a plan, a canal: Panama"
-Output: True
-Explanation: "amanaplanacanalpanama" is a palindrome.''',
-                    'input_format': 'A single line containing the string to check',
-                    'output_format': 'Print "True" if palindrome, "False" otherwise',
-                    'constraints': [
-                        '1 <= s.length <= 1000',
-                        's consists only of printable ASCII characters',
-                        'Time limit: 1 second'
-                    ],
-                    'test_cases': [
-                        {
-                            'input': 'racecar',
-                            'expected_output': 'True',
-                            'explanation': 'racecar reads the same forwards and backwards'
-                        },
-                        {
-                            'input': 'hello',
-                            'expected_output': 'False',
-                            'explanation': 'hello is not the same when reversed'
-                        },
-                        {
-                            'input': 'A man, a plan, a canal: Panama',
-                            'expected_output': 'True',
-                            'explanation': 'Ignoring non-alphanumeric characters and case, it is a palindrome'
-                        }
-                    ],
-                    'hints': [
-                        'Remove all non-alphanumeric characters first',
-                        'Convert to lowercase for case-insensitive comparison',
-                        'Compare the string with its reverse'
-                    ],
-                    'time_complexity': 'O(n)',
-                    'space_complexity': 'O(n)',
-                    'tags': ['string', 'two-pointers'],
-                    'sample_solution': '''s = input()
-cleaned = ''.join(c.lower() for c in s if c.isalnum())
-print(cleaned == cleaned[::-1])'''
-                },
-                {
-                    'title': 'Reverse Integer',
-                    'description': '''Given a signed 32-bit integer x, return x with its digits reversed. If reversing x causes the value to go outside the signed 32-bit integer range [-2^31, 2^31 - 1], then return 0.
+Your solution should {solution_approach}.
 
-Assume the environment does not allow you to store 64-bit integers (signed or unsigned).
+Input consists of {input_desc}.
+Output should provide {output_desc}.''',
+                'systems': ['Monitoring', 'Analytics', 'Tracking', 'Detection', 'Validation'],
+                'analyzers': ['Pattern', 'Anomaly', 'Trend', 'Performance', 'Quality'],
+                'actions': ['identifies patterns', 'detects anomalies', 'analyzes trends', 'validates data'],
+                'criteria': ['predefined rules', 'statistical thresholds', 'historical patterns', 'business constraints']
+            },
+            {
+                'title_pattern': 'Smart {domain} {function}',
+                'description_pattern': '''You're developing a smart {domain} application that helps users {user_goal}.
 
-Example:
-Input: x = 123
-Output: 321
+The system receives {input_type} and must {processing_task}.
 
-Example:
-Input: x = -123
-Output: -321''',
-                    'input_format': 'A single integer x',
-                    'output_format': 'The reversed integer, or 0 if it overflows',
-                    'constraints': [
-                        '-2^31 <= x <= 2^31 - 1',
-                        'Time limit: 1 second'
-                    ],
-                    'test_cases': [
-                        {
-                            'input': '123',
-                            'expected_output': '321',
-                            'explanation': 'Reverse of 123 is 321'
-                        },
-                        {
-                            'input': '-123',
-                            'expected_output': '-321',
-                            'explanation': 'Reverse of -123 is -321'
-                        },
-                        {
-                            'input': '120',
-                            'expected_output': '21',
-                            'explanation': 'Reverse of 120 is 021, which is 21'
-                        }
-                    ],
-                    'hints': [
-                        'Handle negative numbers by storing the sign separately',
-                        'Convert to string, reverse it, then convert back to integer',
-                        'Check for overflow before returning'
-                    ],
-                    'time_complexity': 'O(log n)',
-                    'space_complexity': 'O(1)',
-                    'tags': ['math'],
-                    'sample_solution': '''x = int(input())
-sign = -1 if x < 0 else 1
-x = abs(x)
-reversed_x = int(str(x)[::-1]) * sign
-if reversed_x < -2**31 or reversed_x > 2**31 - 1:
-    print(0)
-else:
-    print(reversed_x)'''
-                }
-            ],
-            'JavaScript': [
-                {
-                    'title': 'Valid Anagram',
-                    'description': '''Given two strings s and t, return true if t is an anagram of s, and false otherwise.
+Constraints:
+- {constraint1}
+- {constraint2}
+- Real-time processing required
 
-An Anagram is a word or phrase formed by rearranging the letters of a different word or phrase, typically using all the original letters exactly once.
-
-Example:
-Input: s = "anagram", t = "nagaram"
-Output: true
-
-Example:
-Input: s = "rat", t = "car"
-Output: false''',
-                    'input_format': 'Two lines, each containing a string',
-                    'output_format': 'Print "true" if anagram, "false" otherwise',
-                    'constraints': [
-                        '1 <= s.length, t.length <= 5 * 10^4',
-                        's and t consist of lowercase English letters',
-                        'Time limit: 1 second'
-                    ],
-                    'test_cases': [
-                        {
-                            'input': 'anagram\\nnagaram',
-                            'expected_output': 'true',
-                            'explanation': 'Both strings have the same characters'
-                        },
-                        {
-                            'input': 'rat\\ncar',
-                            'expected_output': 'false',
-                            'explanation': 'Different characters'
-                        }
-                    ],
-                    'hints': [
-                        'Sort both strings and compare',
-                        'Or use a hash map to count character frequencies'
-                    ],
-                    'time_complexity': 'O(n log n) or O(n)',
-                    'space_complexity': 'O(1) or O(n)',
-                    'tags': ['string', 'hash-table', 'sorting'],
-                    'sample_solution': '''const readline = require('readline');
-const rl = readline.createInterface({input: process.stdin});
-let lines = [];
-rl.on('line', (line) => lines.push(line));
-rl.on('close', () => {
-    const s = lines[0].split('').sort().join('');
-    const t = lines[1].split('').sort().join('');
-    console.log(s === t);
-});'''
-                }
-            ],
-            'Java': [
-                {
-                    'title': 'Reverse String',
-                    'description': '''Write a function that reverses a string. The input string is given as an array of characters s.
-
-You must do this by modifying the input array in-place with O(1) extra memory.
-
-Example:
-Input: s = ["h","e","l","l","o"]
-Output: ["o","l","l","e","h"]''',
-                    'input_format': 'A single line containing the string',
-                    'output_format': 'The reversed string',
-                    'constraints': [
-                        '1 <= s.length <= 10^5',
-                        's[i] is a printable ASCII character',
-                        'Time limit: 1 second'
-                    ],
-                    'test_cases': [
-                        {
-                            'input': 'hello',
-                            'expected_output': 'olleh',
-                            'explanation': 'Reverse of hello'
-                        },
-                        {
-                            'input': 'Java',
-                            'expected_output': 'avaJ',
-                            'explanation': 'Reverse of Java'
-                        }
-                    ],
-                    'hints': [
-                        'Use two pointers, one at start and one at end',
-                        'Swap characters and move pointers towards center'
-                    ],
-                    'time_complexity': 'O(n)',
-                    'space_complexity': 'O(1)',
-                    'tags': ['string', 'two-pointers'],
-                    'sample_solution': '''import java.util.Scanner;
-
-public class Main {
-    public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
-        if (scanner.hasNextLine()) {
-            String s = scanner.nextLine();
-            System.out.println(new StringBuilder(s).reverse().toString());
+Your algorithm should {algorithm_goal}.''',
+                'domains': ['City', 'Home', 'Office', 'Factory', 'Campus', 'Hospital'],
+                'functions': ['Controller', 'Manager', 'Coordinator', 'Planner', 'Optimizer'],
+                'user_goals': ['optimize resource usage', 'improve efficiency', 'reduce costs', 'enhance experience'],
+                'processing_tasks': ['process inputs in real-time', 'make intelligent decisions', 'predict outcomes', 'optimize operations']
+            }
+        ]
+        
+        # Select random template
+        template = random.choice(challenge_templates)
+        
+        # Generate title based on pattern
+        title_vars = {}
+        for key in template.keys():
+            if isinstance(template[key], list) and key not in ['title_pattern', 'description_pattern']:
+                # Properly singularize by removing trailing 's' only
+                singular_key = key[:-1] if key.endswith('s') else key
+                title_vars[singular_key] = random.choice(template[key])
+        
+        # Create title
+        title = template['title_pattern'].format(**title_vars)
+        
+        # Avoid repeated titles
+        if title in avoid_topics:
+            # Try different combination
+            title = f"{selected_scenario.replace('_', ' ').title()} Challenge"
+        
+        # Map proficiency to difficulty parameters
+        difficulty_params = {
+            'beginner': {
+                'constraints': ['1 <= n <= 100', 'Simple data types', 'Time limit: 2 seconds'],
+                'complexity': 'O(n)',
+                'description_length': 'concise'
+            },
+            'intermediate': {
+                'constraints': ['1 <= n <= 10^4', 'Mixed data structures', 'Time limit: 1 second'],
+                'complexity': 'O(n log n)',
+                'description_length': 'detailed'
+            },
+            'advanced': {
+                'constraints': ['1 <= n <= 10^6', 'Complex nested structures', 'Time limit: 1 second', 'Space limit: O(n)'],
+                'complexity': 'O(n) or O(n log n)',
+                'description_length': 'comprehensive'
+            }
         }
-    }
-}'''
-                }
-            ],
-            'C++': [
-                {
-                    'title': 'Sum of Array',
-                    'description': '''Given an array of integers, find the sum of its elements.
+        
+        params = difficulty_params.get(proficiency, difficulty_params['beginner'])
+        
+        # Generate description based on scenario
+        scenario_descriptions = {
+            'smart_city_infrastructure': 'smart city infrastructure',
+            'healthcare_monitoring': 'healthcare patient monitoring',
+            'e_commerce_optimization': 'e-commerce recommendation',
+            'logistics_routing': 'logistics and delivery routing',
+            'social_media_analytics': 'social media content analytics',
+            'financial_fraud_detection': 'financial fraud detection',
+            'gaming_matchmaking': 'gaming matchmaking',
+            'iot_sensor_networks': 'IoT sensor network',
+            'food_delivery_optimization': 'food delivery optimization',
+            'video_streaming_cdn': 'video streaming CDN',
+            'warehouse_robotics': 'warehouse robotics coordination',
+            'agricultural_automation': 'agricultural automation',
+            'smart_parking_systems': 'smart parking management',
+            'traffic_management': 'traffic signal coordination',
+            'inventory_management': 'inventory stock management'
+        }
+        
+        scenario_desc = scenario_descriptions.get(selected_scenario, 'system automation')
+        
+        # Generate sample code based on language
+        sample_solutions = {
+            'Python': f'''import sys
 
-Example:
-Input: 1 2 3
-Output: 6''',
-                    'input_format': 'Space-separated integers',
-                    'output_format': 'The sum of the integers',
-                    'constraints': [
-                        '1 <= n <= 1000',
-                        '-1000 <= arr[i] <= 1000',
-                        'Time limit: 1 second'
-                    ],
-                    'test_cases': [
-                        {
-                            'input': '1 2 3',
-                            'expected_output': '6',
-                            'explanation': '1+2+3 = 6'
-                        },
-                        {
-                            'input': '10 -5 20',
-                            'expected_output': '25',
-                            'explanation': '10-5+20 = 25'
-                        }
-                    ],
-                    'hints': ['Use a loop or std::accumulate'],
-                    'time_complexity': 'O(n)',
-                    'space_complexity': 'O(1)',
-                    'tags': ['array', 'math'],
-                    'sample_solution': '''#include <iostream>
+def process_data(items):
+    """
+    Implement your algorithm here
+    """
+    # TODO: Write your logic here
+    return sum(items)
+
+if __name__ == "__main__":
+    # Read all input from stdin
+    input_data = sys.stdin.read().split()
+    
+    if not input_data:
+        print(0)
+    else:
+        # Convert to integers
+        data = [int(x) for x in input_data]
+        
+        # Process and print result
+        result = process_data(data)
+        print(result)
+''',
+            'JavaScript': f'''// Node.js stdin reading
+const readline = require('readline');
+const rl = readline.createInterface({{input: process.stdin}});
+
+let lines = [];
+rl.on('line', (line) => {{
+    lines.push(line);
+}});
+
+rl.on('close', () => {{
+    // Process input
+    const data = lines[0].split(' ').map(Number);
+    
+    // Your algorithm here ({proficiency} level)
+    const result = processData(data);
+    
+    console.log(result);
+}});
+
+function processData(items) {{
+    // Implement {params['complexity']} solution
+    return items.reduce((a, b) => a + b, 0);
+}}
+''',
+            'Java': f'''import java.util.*;
+
+public class Main {{
+    public static void main(String[] args) {{
+        Scanner scanner = new Scanner(System.in);
+        
+        // Read input
+        String[] input = scanner.nextLine().split(" ");
+        int[] data = new int[input.length];
+        for (int i = 0; i < input.length; i++) {{
+            data[i] = Integer.parseInt(input[i]);
+        }}
+        
+        // Process - implement {params['complexity']} algorithm
+        int result = processData(data);
+        
+        System.out.println(result);
+    }}
+    
+    static int processData(int[] items) {{
+        // Your {proficiency} level solution here
+        int sum = 0;
+        for (int item : items) sum += item;
+        return sum;
+    }}
+}}
+''',
+            'C++': f'''#include <iostream>
 #include <vector>
 #include <sstream>
-
 using namespace std;
 
-int main() {
+int processData(vector<int>& data) {{
+    // Implement {params['complexity']} algorithm
+    // {proficiency} level solution
+    int sum = 0;
+    for (int val : data) sum += val;
+    return sum;
+}}
+
+int main() {{
     string line;
     getline(cin, line);
     stringstream ss(line);
-    int num, sum = 0;
-    while (ss >> num) {
-        sum += num;
-    }
-    cout << sum << endl;
-    return 0;
-}'''
-                }
-            ],
-            'C': [
-                 {
-                    'title': 'Factorial',
-                    'description': '''Write a program to calculate the factorial of a number N.
-Factorial of N = 1 * 2 * ... * N.
-Factorial of 0 is 1.
-
-Example:
-Input: 5
-Output: 120''',
-                    'input_format': 'A single integer N',
-                    'output_format': 'The factorial of N',
-                    'constraints': [
-                        '0 <= N <= 12',
-                        'Time limit: 1 second'
-                    ],
-                    'test_cases': [
-                        {
-                            'input': '5',
-                            'expected_output': '120',
-                            'explanation': '5! = 120'
-                        },
-                        {
-                            'input': '0',
-                            'expected_output': '1',
-                            'explanation': '0! = 1'
-                        }
-                    ],
-                    'hints': ['Use recursion or a loop'],
-                    'time_complexity': 'O(n)',
-                    'space_complexity': 'O(1)',
-                    'tags': ['math', 'recursion'],
-                    'sample_solution': '''#include <stdio.h>
-
-int main() {
-    int n;
-    if (scanf("%d", &n) != 1) return 0;
     
-    long long fact = 1;
-    for (int i = 1; i <= n; i++) {
-        fact *= i;
-    }
-    printf("%lld\\n", fact);
+    vector<int> data;
+    int num;
+    while (ss >> num) {{
+        data.push_back(num);
+    }}
+    
+    cout << processData(data) << endl;
     return 0;
-}'''
-                }
-            ],
-            'SQL': [
-                {
-                    'title': 'Hello World SQL',
-                    'description': '''Write a query to return the string "Hello World".''',
-                    'input_format': 'N/A',
-                    'output_format': 'The string "Hello World"',
-                    'constraints': [],
-                    'test_cases': [
-                        {
-                            'input': '',
-                            'expected_output': 'Hello World',
-                            'explanation': 'Select string literal'
-                        }
-                    ],
-                    'hints': ['Use SELECT'],
-                    'time_complexity': 'O(1)',
-                    'space_complexity': 'O(1)',
-                    'tags': ['sql', 'basics'],
-                    'sample_solution': "SELECT 'Hello World';"
-                }
-            ]
+}}
+''',
+            'C': f'''#include <stdio.h>
+
+int main() {{
+    int num;
+    long long sum = 0;
+    
+    // Read integers until end of input
+    while (scanf("%d", &num) == 1) {{
+        // TODO: Implement your logic here
+        sum += num;
+    }}
+    
+    // Output the result
+    printf("%lld\\n", sum);
+    
+    return 0;
+}}
+'''
         }
         
-        # Default coding challenge with HackerRank style
-        default_challenge = {
-            'title': f'{skill} - Hello World',
-            'description': f'''Write a program in {skill} that prints "Hello World" to the console.
+        # Get language-specific solution or use Python as default
+        sample_solution = sample_solutions.get(skill, sample_solutions['Python'])
+        
+        # Build complete challenge
+        challenge = {
+            'title': title,
+            'description': f'''You are building a {scenario_desc} system for a real-world application.
 
-This is a basic warm-up challenge to verify your environment is set up correctly.
+Problem Context:
+The system needs to efficiently process incoming data according to specific business rules and constraints.
 
-Example:
-Output: Hello World''',
-            'input_format': 'No input required',
-            'output_format': 'Print "Hello World" (without quotes)',
-            'constraints': [
-                'Output must match exactly: Hello World',
-                'Time limit: 1 second'
-            ],
+Task:
+Implement an algorithm that processes the input data and produces the required output according to the specifications below.
+
+This problem tests your understanding of:
+- Efficient data processing
+- Algorithm optimization for {proficiency} level
+- {params['complexity']} time complexity solutions
+''',
+            'input_format': 'First line contains space-separated integers representing the data to process',
+            'output_format': 'Output a single line with the processed result',
+            'constraints': params['constraints'],
             'test_cases': [
                 {
-                    'input': '',
-                    'expected_output': 'Hello World',
-                    'explanation': 'Simple Hello World output'
+                    'input': '1 2 3 4 5',
+                    'expected_output': '15',
+                    'explanation': 'Process the input according to the algorithm'
+                },
+                {
+                    'input': '10 20 30',
+                    'expected_output': '60',
+                    'explanation': 'Example with different input size'
                 }
             ],
             'hints': [
-                'Use the standard output function for your language',
-                'Make sure the output matches exactly, including capitalization'
+                f'Consider using appropriate data structures for {proficiency} level',
+                f'Aim for {params["complexity"]} time complexity',
+                'Think about edge cases: empty input, single element, large datasets'
             ],
-            'time_complexity': 'O(1)',
-            'space_complexity': 'O(1)',
-            'tags': ['basics'],
-            'sample_solution': 'print("Hello World")',
+            'time_complexity': params['complexity'],
+            'space_complexity': 'O(n)',
+            'tags': ['algorithm', selected_scenario, proficiency],
+            'sample_solution': sample_solution,
+            'starter_code': f'# Starter code for {skill}\n# Read input, process, and output result\n',
             'difficulty': proficiency,
             'skill': skill,
             'type': 'coding',
-            'time_limit': 30
+            'time_limit': 30,
+            'scenario': selected_scenario
         }
         
-        # Get skill-specific challenges or use default
-        challenges = coding_challenges.get(skill, [default_challenge])
-        
-        # Select a random challenge
-        selected = random.choice(challenges) if isinstance(challenges, list) else default_challenge
-        selected['difficulty'] = proficiency
-        selected['skill'] = skill
-        selected['type'] = 'coding'
-        selected['time_limit'] = 30
-        
-        return selected
+        print(f"Generated dynamic fallback challenge: {title} (scenario: {selected_scenario})")
+        return challenge
+

@@ -3,6 +3,17 @@ const quizInterface = {
     timerInterval: null,
     timeRemaining: 0,
 
+    // Helper to escape HTML to prevent tags from rendering invisibly
+    escapeHtml(text) {
+        if (!text) return text;
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    },
+
     // Generate quiz
     async generateQuiz() {
         try {
@@ -116,11 +127,15 @@ const quizInterface = {
                 optionClass += ' selected';
             }
 
+            const rawValue = option.value ? option.value : '';
+            const escapedValue = this.escapeHtml(rawValue);
+            const optionText = rawValue ? escapedValue : '<span class="text-muted fst-italic">Option text missing</span>';
+
             html += `
                 <div class="${optionClass}" onclick="quizInterface.selectAnswer(${index}, '${originalKey}')">
                     <div class="option-content">
                         <span class="option-label">${visualLabel}</span>
-                        <span class="option-text">${option.value}</span>
+                        <span class="option-text">${optionText}</span>
                     </div>
                     ${feedbackHtml}
                 </div>

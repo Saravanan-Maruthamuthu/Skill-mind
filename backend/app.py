@@ -207,6 +207,7 @@ def generate_quiz():
         
         session = sessions[session_id]
         skill_analysis = session['skill_analysis']
+        resume_data = session['resume_data']
         
         # Get top skills for assessment
         skills_for_assessment = skill_analyzer.get_skills_for_assessment(
@@ -214,8 +215,57 @@ def generate_quiz():
             max_skills=5
         )
         
-        # Generate quiz
-        quiz = question_generator.generate_quiz_for_skills(skills_for_assessment)
+        # Generate MCQ questions for all skills
+        all_mcqs = []
+        for skill_info in skills_for_assessment:
+            skill = skill_info['skill']
+            proficiency = skill_info['proficiency']
+            
+            # Generate MCQs
+            mcqs = question_generator.generate_mcq_questions(skill, proficiency, Config.MCQ_PER_SKILL)
+            all_mcqs.extend(mcqs)
+        
+        # Calculate years of experience for difficulty calibration
+        years_of_exp = skill_analyzer.calculate_total_experience(resume_data.get('experience', []))
+        
+        # Extract all skills for batch coding challenge generation
+        all_skills = [s['skill'] for s in skill_analysis['with_proficiency']]
+        
+        # Generate 3 dynamic coding challenges based on ALL candidate skills
+        coding_challenges = question_generator.generate_coding_challenges_for_candidate(
+            skills=all_skills,
+            years_of_experience=years_of_exp
+        )
+        
+        # Fallback: If batch generation returns empty, use the old method
+        if not coding_challenges:
+            logger.warning("Batch generation failed, falling back to individual generation")
+            coding_challenges = []
+            prog_languages = skill_analyzer.get_best_programming_languages(
+                skill_analysis['with_proficiency'],
+                count=2
+            )
+            
+            for lang_info in prog_languages[:1]:  # Generate for top language only
+                for i in range(3):
+                    challenge = question_generator.generate_coding_challenge(
+                        skill=lang_info['skill'],
+                        proficiency=lang_info['proficiency'],
+                        avoid_topics=[c.get('title', '') for c in coding_challenges],
+                        years_of_experience=years_of_exp
+                    )
+                    if challenge:
+                        coding_challenges.append(challenge)
+        
+        # Build quiz response
+        quiz = {
+            'mcq_questions': all_mcqs,
+            'coding_challenges': coding_challenges,
+            'total_mcqs': len(all_mcqs),
+            'total_coding': len(coding_challenges),
+            'time_limit_mcq': Config.QUIZ_TIME_LIMIT,
+            'time_limit_coding': Config.CODING_TIME_LIMIT
+        }
         
         # Store quiz in session
         session['quiz'] = quiz
@@ -227,6 +277,7 @@ def generate_quiz():
         })
         
     except Exception as e:
+        logger.error(f"Quiz generation error: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/submit-quiz', methods=['POST'])
@@ -327,14 +378,14 @@ def start_interview():
         emotion_analyzer.start_session()
         
         # Initialize attention analyzer for eye tracking
-        from modules.attention_analyzer import AttentionAnalyzer
-        attention_analyzer = AttentionAnalyzer()
-        attention_analyzer.start_session()
+        # from modules.attention_analyzer import AttentionAnalyzer
+        # attention_analyzer = AttentionAnalyzer()
+        # attention_analyzer.start_session()
         
         # Store interviewer, emotion analyzer, and attention analyzer in session
         session['hr_interviewer'] = hr_interviewer
         session['emotion_analyzer'] = emotion_analyzer
-        session['attention_analyzer'] = attention_analyzer
+        session['attention_analyzer'] = None
         
         return jsonify({
             'success': True,
@@ -383,33 +434,10 @@ def analyze_emotion():
 def track_attention():
     """Receive and store attention tracking data"""
     try:
-        data = request.json
-        session_id = data.get('session_id')
-        
-        if session_id not in sessions:
-            return jsonify({'error': 'Invalid session'}), 400
-        
-        session = sessions[session_id]
-        attention_analyzer = session.get('attention_analyzer')
-        
-        if not attention_analyzer:
-            from modules.attention_analyzer import AttentionAnalyzer
-            attention_analyzer = AttentionAnalyzer()
-            attention_analyzer.start_session()
-            session['attention_analyzer'] = attention_analyzer
-        
-        # Add attention data
-        attention_analyzer.add_attention_data({
-            'focused_time': data.get('focused_time', 0),
-            'distracted_time': data.get('distracted_time', 0),
-            'attention_percentage': data.get('attention_percentage', 0),
-            'distractions': data.get('distractions', []),
-            'timestamp': data.get('timestamp')
-        })
-        
+        # Attention tracking is disabled
         return jsonify({
             'success': True,
-            'message': 'Attention data recorded'
+            'message': 'Attention tracking disabled'
         })
         
     except Exception as e:

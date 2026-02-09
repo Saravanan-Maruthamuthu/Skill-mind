@@ -42,6 +42,9 @@ const videoInterview = {
 
     // Start video interview (without eye tracking)
     async startVideoInterview() {
+        // Ensure any previous stream is stopped to prevent conflicts
+        this.stopVideoInterview();
+
         try {
             // Request camera permission
             this.videoStream = await navigator.mediaDevices.getUserMedia({

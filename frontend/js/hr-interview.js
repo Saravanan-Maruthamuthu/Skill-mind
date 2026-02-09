@@ -3,8 +3,8 @@ const hrInterview = {
     // Start interview
     async startInterview() {
         try {
-            // First, start video mode with eye tracking
-            app.showInfo('Initializing video interview with eye tracking...');
+            // First, start video mode
+            app.showInfo('Initializing video interview...');
             const videoStarted = await videoInterview.autoStartInterview();
 
             if (!videoStarted) {
