@@ -3,6 +3,7 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
 import json
+import random
 from datetime import datetime
 import logging
 
@@ -10,6 +11,7 @@ from config import Config
 from modules.resume_parser import ResumeParser
 from modules.skill_analyzer import SkillAnalyzer
 from modules.question_generator import QuestionGenerator
+from modules.fast_mcq_generator import FastMCQGenerator  # Fast MCQ generation
 from modules.evaluator import Evaluator
 from modules.hr_interviewer import HRInterviewer
 from modules.report_generator import ReportGenerator
@@ -39,6 +41,7 @@ CORS(app, resources={
 resume_parser = ResumeParser()
 skill_analyzer = SkillAnalyzer()
 question_generator = QuestionGenerator()
+fast_mcq_generator = FastMCQGenerator()  # Fast MCQ generation without API delays
 evaluator = Evaluator()
 report_generator = ReportGenerator()
 
@@ -215,47 +218,40 @@ def generate_quiz():
             max_skills=5
         )
         
-        # Generate MCQ questions for all skills
+        # Generate MCQ questions for all skills - FAST MODE (no API delays!)
         all_mcqs = []
         for skill_info in skills_for_assessment:
             skill = skill_info['skill']
             proficiency = skill_info['proficiency']
             
-            # Generate MCQs
-            mcqs = question_generator.generate_mcq_questions(skill, proficiency, Config.MCQ_PER_SKILL)
+            # Use FAST generator for instant MCQs (no API calls!)
+            mcqs = fast_mcq_generator.generate_mcq_questions(skill, proficiency, Config.MCQ_PER_SKILL)
             all_mcqs.extend(mcqs)
+        
+        # Shuffle questions for randomized quiz experience
+        random.shuffle(all_mcqs)
         
         # Calculate years of experience for difficulty calibration
         years_of_exp = skill_analyzer.calculate_total_experience(resume_data.get('experience', []))
         
-        # Extract all skills for batch coding challenge generation
-        all_skills = [s['skill'] for s in skill_analysis['with_proficiency']]
+        # Filter for programming languages only
+        programming_langs_list = ['Python', 'Java', 'JavaScript', 'C++', 'C', 'SQL', 'Kotlin', 'Go', 'Rust', 'Swift', 'R', 'C#', 'Ruby', 'PHP', 'TypeScript']
         
-        # Generate 3 dynamic coding challenges based on ALL candidate skills
-        coding_challenges = question_generator.generate_coding_challenges_for_candidate(
-            skills=all_skills,
-            years_of_experience=years_of_exp
-        )
+        programming_skills = [
+            skill_info for skill_info in skill_analysis['with_proficiency']
+            if skill_info['skill'] in programming_langs_list
+        ]
         
-        # Fallback: If batch generation returns empty, use the old method
-        if not coding_challenges:
-            logger.warning("Batch generation failed, falling back to individual generation")
-            coding_challenges = []
-            prog_languages = skill_analyzer.get_best_programming_languages(
-                skill_analysis['with_proficiency'],
-                count=2
+        # Generate 3 coding challenges per programming language
+        coding_challenges = []
+        if programming_skills:
+            logger.info(f"Generating 3 challenges for each of {len(programming_skills)} programming languages")
+            coding_challenges = question_generator.generate_questions_per_language(
+                programming_languages=programming_skills,
+                years_of_experience=years_of_exp
             )
-            
-            for lang_info in prog_languages[:1]:  # Generate for top language only
-                for i in range(3):
-                    challenge = question_generator.generate_coding_challenge(
-                        skill=lang_info['skill'],
-                        proficiency=lang_info['proficiency'],
-                        avoid_topics=[c.get('title', '') for c in coding_challenges],
-                        years_of_experience=years_of_exp
-                    )
-                    if challenge:
-                        coding_challenges.append(challenge)
+        else:
+            logger.warning("No programming languages found in resume skills")
         
         # Build quiz response
         quiz = {

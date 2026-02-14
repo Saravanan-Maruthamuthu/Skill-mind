@@ -1,0 +1,51 @@
+{
+  "title": "Efficient Sales Data Analyzer Analyzer",
+  "description": "Your team is building a sales data analyzer as part of a larger platform.\n\nGiven an array of 729 integers, you need to process the data efficiently.\n\n**Requirements:**\n- Handle input sizes up to 729 elements\n- Optimize for time complexity better than O(n\u00b2)\n- Consider edge cases like empty inputs and boundary values\n- Ensure the solution works within 1 second(s)\n\n**Example Scenario:**\nInput: An array of 5 integers\nOutput: The processed result based on the criteria\n\n**Task:**\nImplement a solution that meets all requirements and handles edge cases efficiently.\n",
+  "difficulty": "Intermediate",
+  "topic": "Arrays",
+  "language": "Python",
+  "constraints": [
+    "1 \u2264 array size \u2264 1000",
+    "1 \u2264 string length \u2264 1000",
+    "1 \u2264 numbers \u2264 10000",
+    "Time limit: 1 second(s)",
+    "Memory limit: 256 MB"
+  ],
+  "test_cases": [
+    {
+      "input": "63 2 99 93 6 75 58",
+      "expected_output": "396",
+      "explanation": "Test case 1: Validates basic functionality"
+    },
+    {
+      "input": "72 21 88 59 77 32 15",
+      "expected_output": "364",
+      "explanation": "Test case 2: Validates basic functionality"
+    },
+    {
+      "input": "64 83 58 18 79 23 90 79",
+      "expected_output": "494",
+      "explanation": "Test case 3: Validates edge cases"
+    },
+    {
+      "input": "55 53 24 12 5 19",
+      "expected_output": "168",
+      "explanation": "Test case 4: Validates edge cases"
+    },
+    {
+      "input": "55 66 51",
+      "expected_output": "172",
+      "explanation": "Test case 5: Validates edge cases"
+    }
+  ],
+  "starter_code": "def solve(arr):\n    # TODO: Implement your solution here\n    pass\n\nif __name__ == '__main__':\n    import sys\n    arr = list(map(int, sys.stdin.read().split()))\n    result = solve(arr)\n    print(result)",
+  "time_limit": 1,
+  "hints": [
+    "Consider using two pointers or sliding window technique",
+    "Think about sorting the array first",
+    "Use hash maps for O(1) lookups"
+  ],
+  "type": "coding",
+  "skill": "Python",
+  "generated_at": "2026-02-14T20:21:40.891325"
+}

@@ -1,0 +1,51 @@
+{
+  "title": "Smart Route Optimization System Calculator",
+  "description": "Your team is building a route optimization system as part of a larger platform.\n\nDesign an algorithm that processes up to 43 elements optimally.\n\n**Requirements:**\n- Handle input sizes up to 43 elements\n- Optimize for time complexity better than O(n\u00b2)\n- Consider edge cases like empty inputs and boundary values\n- Ensure the solution works within 1 second(s)\n\n**Example Scenario:**\nInput: Problem parameters and constraints\nOutput: Optimal solution\n\n**Task:**\nImplement a solution that meets all requirements and handles edge cases efficiently.\n",
+  "difficulty": "Intermediate",
+  "topic": "Algorithms",
+  "language": "Python",
+  "constraints": [
+    "1 \u2264 array size \u2264 1000",
+    "1 \u2264 string length \u2264 1000",
+    "1 \u2264 numbers \u2264 10000",
+    "Time limit: 1 second(s)",
+    "Memory limit: 256 MB"
+  ],
+  "test_cases": [
+    {
+      "input": "71",
+      "expected_output": "142",
+      "explanation": "Test case 1: Validates basic functionality"
+    },
+    {
+      "input": "30",
+      "expected_output": "60",
+      "explanation": "Test case 2: Validates basic functionality"
+    },
+    {
+      "input": "62",
+      "expected_output": "124",
+      "explanation": "Test case 3: Validates edge cases"
+    },
+    {
+      "input": "16",
+      "expected_output": "32",
+      "explanation": "Test case 4: Validates edge cases"
+    },
+    {
+      "input": "81",
+      "expected_output": "162",
+      "explanation": "Test case 5: Validates edge cases"
+    }
+  ],
+  "starter_code": "def solve(n):\n    # TODO: Implement your solution here\n    pass\n\nif __name__ == '__main__':\n    import sys\n    n = int(sys.stdin.read().strip())\n    result = solve(n)\n    print(result)",
+  "time_limit": 1,
+  "hints": [
+    "Break down the problem into smaller subproblems",
+    "Consider greedy vs dynamic programming approaches",
+    "Think about the optimal substructure"
+  ],
+  "type": "coding",
+  "skill": "Python",
+  "generated_at": "2026-02-14T20:20:41.550140"
+}

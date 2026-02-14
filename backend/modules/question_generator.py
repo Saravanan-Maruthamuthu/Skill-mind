@@ -298,6 +298,66 @@ Each challenge object MUST have these exact keys:
                 }
             ]
 
+    def generate_questions_per_language(self, programming_languages: List[Dict], years_of_experience: int = 1) -> List[Dict]:
+        """
+        Generate 3 unique coding challenges for each programming language skill.
+        
+        Args:
+            programming_languages: List of dicts with 'skill' and 'proficiency' keys
+            years_of_experience: Candidate's years of experience for difficulty calibration
+            
+        Returns:
+            List of all generated coding challenges (3 per language)
+        """
+        all_challenges = []
+        
+        for lang_info in programming_languages:
+            language = lang_info['skill']
+            proficiency = lang_info['proficiency']
+            
+            print(f"\n{'='*60}")
+            print(f"Generating 3 challenges for {language} ({proficiency} level)")
+            print(f"{'='*60}")
+            
+            # Track topics to avoid duplicates within the same language
+            generated_topics = []
+            
+            # Generate exactly 3 challenges per language
+            for challenge_num in range(1, 4):
+                print(f"\nGenerating challenge {challenge_num}/3 for {language}...")
+                
+                try:
+                    challenge = self.generate_coding_challenge(
+                        skill=language,
+                        proficiency=proficiency,
+                        avoid_topics=generated_topics,
+                        years_of_experience=years_of_experience
+                    )
+                    
+                    if challenge:
+                        # Add challenge number metadata
+                        challenge['challenge_number'] = challenge_num
+                        challenge['language'] = language
+                        
+                        all_challenges.append(challenge)
+                        generated_topics.append(challenge.get('title', 'Unknown'))
+                        
+                        print(f"[OK] Generated: {challenge.get('title', 'Untitled')}")
+                    else:
+                        print(f"[FAIL] Failed to generate challenge {challenge_num} for {language}")
+                        
+                except Exception as e:
+                    print(f"[ERROR] Error generating challenge {challenge_num} for {language}: {e}")
+                    continue
+            
+            print(f"\nCompleted {language}: {len([c for c in all_challenges if c.get('language') == language])}/3 challenges generated")
+        
+        print(f"\n{'='*60}")
+        print(f"Total challenges generated: {len(all_challenges)}")
+        print(f"{'='*60}\n")
+        
+        return all_challenges
+
     def generate_coding_challenge(self, skill: str, proficiency: str, avoid_topics: List[str] = None, years_of_experience: int = 1) -> Dict:
         """
         Generate a dynamic, skill-adapted coding challenge using Instruction-Tuned Transformer models
