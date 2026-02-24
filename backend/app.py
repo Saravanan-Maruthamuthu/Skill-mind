@@ -16,6 +16,9 @@ from modules.evaluator import Evaluator
 from modules.hr_interviewer import HRInterviewer
 from modules.report_generator import ReportGenerator
 from modules.emotion_analyzer import EmotionAnalyzer
+from modules.enhanced_question_generator import EnhancedQuestionGenerator
+from modules.enhanced_report_generator import EnhancedReportGenerator
+from modules.enhanced_hr_interviewer import EnhancedHRInterviewer, InterviewSession
 
 # Configure logging
 logging.basicConfig(
@@ -44,6 +47,11 @@ question_generator = QuestionGenerator()
 fast_mcq_generator = FastMCQGenerator()  # Fast MCQ generation without API delays
 evaluator = Evaluator()
 report_generator = ReportGenerator()
+
+# Initialize enhanced modules
+enhanced_question_generator = EnhancedQuestionGenerator()
+enhanced_report_generator = EnhancedReportGenerator()
+enhanced_hr_interviewer = EnhancedHRInterviewer()
 
 # Store session data (in production, use a proper database)
 sessions = {}
@@ -218,47 +226,55 @@ def generate_quiz():
             max_skills=5
         )
         
-        # Generate MCQ questions for all skills - FAST MODE (no API delays!)
+        # Create skills dict with proficiency levels
+        skills_with_proficiency = {
+            s['skill']: s['proficiency'] for s in skills_for_assessment
+        }
+        
+        # Generate assessment using enhanced generator (5 MCQ + coding challenges per skill)
+        assessment = enhanced_question_generator.get_skill_based_assessment(
+            skills_with_proficiency
+        )
+        
+        # Get MCQ questions
         all_mcqs = []
-        for skill_info in skills_for_assessment:
-            skill = skill_info['skill']
-            proficiency = skill_info['proficiency']
-            
-            # Use FAST generator for instant MCQs (no API calls!)
-            mcqs = fast_mcq_generator.generate_mcq_questions(skill, proficiency, Config.MCQ_PER_SKILL)
-            all_mcqs.extend(mcqs)
+        for skill, questions in assessment['mcq_questions'].items():
+            all_mcqs.extend(questions)
         
         # Shuffle questions for randomized quiz experience
         random.shuffle(all_mcqs)
         
-        # Calculate years of experience for difficulty calibration
-        years_of_exp = skill_analyzer.calculate_total_experience(resume_data.get('experience', []))
+        # Get coding challenges
+        coding_challenges_by_skill = assessment['coding_challenges']
         
-        # Filter for programming languages only
-        programming_langs_list = ['Python', 'Java', 'JavaScript', 'C++', 'C', 'SQL', 'Kotlin', 'Go', 'Rust', 'Swift', 'R', 'C#', 'Ruby', 'PHP', 'TypeScript']
-        
-        programming_skills = [
-            skill_info for skill_info in skill_analysis['with_proficiency']
-            if skill_info['skill'] in programming_langs_list
-        ]
-        
-        # Generate 3 coding challenges per programming language
-        coding_challenges = []
-        if programming_skills:
-            logger.info(f"Generating 3 challenges for each of {len(programming_skills)} programming languages")
-            coding_challenges = question_generator.generate_questions_per_language(
-                programming_languages=programming_skills,
-                years_of_experience=years_of_exp
-            )
-        else:
-            logger.warning("No programming languages found in resume skills")
+        # Flatten coding challenges for display
+        all_coding_challenges = []
+        for skill, difficulties in coding_challenges_by_skill.items():
+            for difficulty, challenges in difficulties.items():
+                for challenge in challenges:
+                    challenge['skill'] = skill
+                    challenge['difficulty_level'] = difficulty
+                    all_coding_challenges.append(challenge)
         
         # Build quiz response
         quiz = {
             'mcq_questions': all_mcqs,
-            'coding_challenges': coding_challenges,
+            'coding_challenges': all_coding_challenges,
             'total_mcqs': len(all_mcqs),
-            'total_coding': len(coding_challenges),
+            'total_coding': len(all_coding_challenges),
+            'mcq_structure': {
+                'per_skill': 5,
+                'total_skills': len(skills_with_proficiency)
+            },
+            'coding_structure': {
+                'per_skill': 5,
+                'breakdown': {
+                    'basic': 1,
+                    'intermediate': 2,
+                    'advanced': 2
+                },
+                'total_skills': len(coding_challenges_by_skill)
+            },
             'time_limit_mcq': Config.QUIZ_TIME_LIMIT,
             'time_limit_coding': Config.CODING_TIME_LIMIT
         }
@@ -266,6 +282,9 @@ def generate_quiz():
         # Store quiz in session
         session['quiz'] = quiz
         session['quiz_start_time'] = datetime.now().isoformat()
+        session['skills_for_assessment'] = skills_with_proficiency
+        
+        logger.info(f"Generated quiz: {len(all_mcqs)} MCQs, {len(all_coding_challenges)} coding challenges")
         
         return jsonify({
             'success': True,
@@ -605,6 +624,187 @@ def download_report():
         return html, 200, {'Content-Type': 'text/html'}
         
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/enhanced-interview/start', methods=['POST'])
+def enhanced_interview_start():
+    """Start enhanced HR interview with behavioral and technical questions"""
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        
+        if session_id not in sessions:
+            return jsonify({'error': 'Invalid session'}), 400
+        
+        session = sessions[session_id]
+        
+        # Get skills from resume
+        skill_analysis = session.get('skill_analysis', {})
+        skills = [s['skill'] for s in skill_analysis.get('with_proficiency', [])[:5]]
+        
+        # Initialize interview session
+        interview_session = InterviewSession(skills)
+        session['interview_session'] = interview_session
+        session['interview_answers'] = []
+        
+        # Get first question
+        first_question = interview_session.get_current_question()
+        
+        if not first_question:
+            return jsonify({'error': 'Failed to initialize interview'}), 400
+        
+        return jsonify({
+            'success': True,
+            'question': first_question,
+            'progress': f"1/{len(interview_session.questions)}",
+            'total_questions': len(interview_session.questions)
+        })
+        
+    except Exception as e:
+        logger.error(f"Enhanced interview start error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/enhanced-interview/submit-answer', methods=['POST'])
+def enhanced_interview_submit():
+    """Submit answer to interview question"""
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        answer = data.get('answer', '').strip()
+        
+        if session_id not in sessions:
+            return jsonify({'error': 'Invalid session'}), 400
+        
+        if not answer:
+            return jsonify({'error': 'Answer cannot be empty'}), 400
+        
+        session = sessions[session_id]
+        interview_session = session.get('interview_session')
+        
+        if not interview_session:
+            return jsonify({'error': 'Interview not started'}), 400
+        
+        # Submit answer
+        result = interview_session.submit_answer(answer)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        # Store answer
+        session['interview_answers'].append(result['evaluation'])
+        
+        # Check if interview is complete
+        if interview_session.is_complete():
+            # Get summary
+            summary = interview_session.get_summary()
+            session['interview_summary'] = summary
+            
+            return jsonify({
+                'success': True,
+                'evaluation': result['evaluation'],
+                'interview_complete': True,
+                'summary': summary
+            })
+        
+        # Get next question
+        next_question = interview_session.get_current_question()
+        
+        return jsonify({
+            'success': True,
+            'evaluation': result['evaluation'],
+            'next_question': next_question,
+            'progress': result['progress'],
+            'interview_complete': False
+        })
+        
+    except Exception as e:
+        logger.error(f"Interview submit error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/enhanced-report', methods=['POST'])
+def enhanced_final_report():
+    """Generate enhanced final assessment report"""
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        
+        if session_id not in sessions:
+            return jsonify({'error': 'Invalid session'}), 400
+        
+        session = sessions[session_id]
+        
+        # Get all results
+        mcq_questions = session.get('quiz', {}).get('mcq_questions', [])
+        mcq_answers = data.get('mcq_answers', {})
+        
+        coding_results = session.get('coding_results', [])
+        interview_summary = session.get('interview_summary', {})
+        skills_with_proficiency = session.get('skills_for_assessment', {})
+        
+        # Calculate MCQ results by skill
+        mcq_by_skill = {}
+        for skill in skills_with_proficiency.keys():
+            mcq_by_skill[skill] = {
+                'correct': 0,
+                'total': 5  # 5 MCQ per skill
+            }
+        
+        # Parse MCQ answers to count correct ones
+        for q_id, answer in mcq_answers.items():
+            # Find matching question and check if correct
+            for question in mcq_questions:
+                if question.get('id') == q_id or question.get('question') == q_id:
+                    if answer == question.get('correct_answer'):
+                        # Find which skill this question belongs to
+                        for skill in mcq_by_skill.keys():
+                            if mcq_by_skill[skill]['total'] > 0:
+                                mcq_by_skill[skill]['correct'] += 1
+                                break
+                    break
+        
+        # Calculate coding results by skill and difficulty
+        coding_by_skill = {}
+        for skill in skills_with_proficiency.keys():
+            coding_by_skill[skill] = {
+                'basic': {'passed': 0, 'total': 1},
+                'intermediate': {'passed': 0, 'total': 2},
+                'advanced': {'passed': 0, 'total': 2}
+            }
+        
+        # Process coding results
+        for result in coding_results:
+            if isinstance(result, dict) and 'skill' in result:
+                skill = result['skill']
+                difficulty = result.get('difficulty_level', 'basic')
+                if skill in coding_by_skill and difficulty in coding_by_skill[skill]:
+                    if result.get('passed', False):
+                        coding_by_skill[skill][difficulty]['passed'] += 1
+        
+        # Get HR interview score
+        hr_score = interview_summary.get('overall_score', 0) if interview_summary else 0
+        hr_results = {
+            'score': hr_score,
+            'analysis': interview_summary.get('feedback', '') if interview_summary else ''
+        }
+        
+        # Generate enhanced report
+        report = enhanced_report_generator.generate_full_report(
+            mcq_results=mcq_by_skill,
+            coding_results=coding_by_skill,
+            hr_results=hr_results,
+            skills_with_proficiency=skills_with_proficiency
+        )
+        
+        # Store report
+        session['enhanced_report'] = report
+        
+        return jsonify({
+            'success': True,
+            'report': report
+        })
+        
+    except Exception as e:
+        logger.error(f"Enhanced report generation error: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
